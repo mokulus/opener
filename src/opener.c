@@ -66,17 +66,21 @@ static char *read_line_fd(int fd) {
 			continue;
 		}
 		ssize_t r = read(fd, line + len, left);
-		if (r == -1) {
+		if (r < 0) {
 			free(line);
 			return NULL;
 		} else if (r == 0) {
 			break;
 		} else {
-			len += r;
+			len += (size_t)r;
 		}
 	}
 	if (!line)
 		return NULL;
+	if (!len) {
+		free(line);
+		return NULL;
+	}
 	line[len - 1] = '\0'; /* replace newline */
 	return line;
 }
@@ -98,8 +102,7 @@ static int selector_pipe(int npipe[2], int lines, const char *prompt) {
 		char *str = alloc_sprintf(fmt, prompt, lines, pre_pipe[0], post_pipe[1]);
 		/* const char *fmt = "fzf --reverse --prompt='%s' 0>&%d 1>&%d"; */
 		/* char *str = alloc_sprintf(fmt, prompt, pre_pipe[0], post_pipe[1]); */
-		char *const args[] = { "alacritty", "-e", "sh", "-c", str, NULL };
-		execvp(args[0], args);
+		execlp("alacritty", "alacritty", "-e", "sh", "-c", str, (char *)NULL );
 	} else if (exec_pid == -1) {
 		close(pre_pipe[1]);
 		close(post_pipe[0]);
@@ -253,8 +256,7 @@ int main(int argc, char *argv[]) {
 
 	pid_t program_pid = fork();
 	if (program_pid == 0) {
-		const char *const args[] = { program, fullpath, NULL };
-		execvp(args[0], (char *const *)args);
+		execlp(program, program, fullpath, (char *)NULL);
 	} else if (program_pid == -1) {
 		/* TODO */
 	}
