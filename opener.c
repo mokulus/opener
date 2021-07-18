@@ -5,7 +5,10 @@
 #include <sys/ioctl.h>
 #include <stdarg.h>
 #include <libgen.h>
-#include "direntry.h"
+#include <regex.h>
+#include <fts.h>
+#include <errno.h>
+#include <string.h>
 
 static int get_term_lines() {
 	struct winsize size;
@@ -17,7 +20,7 @@ static int get_term_lines() {
 }
 
 static void usage() {
-	fprintf(stderr, "bad usage\n");
+	fprintf(stderr, "opener [-r] [-d] program regex path\n");
 }
 
 static char *alloc_sprintf(const char *fmt, ...) {
@@ -53,17 +56,28 @@ static char *alloc_sprintf(const char *fmt, ...) {
 }
 
 static char *read_line_fd(int fd) {
-	FILE *output = fdopen(fd, "r");
 	char *line = NULL;
-	size_t nread = 0;
+	size_t cap = 32;
 	size_t len = 0;
-	if ((nread = getline(&line, &len, output)) == -1UL) {
-		fclose(output);
-		return NULL;
+	while ((line = realloc(line, cap))) {
+		size_t left = cap - len;
+		if (!left) {
+			cap *= 2;
+			continue;
+		}
+		ssize_t r = read(fd, line + len, left);
+		if (r == -1) {
+			free(line);
+			return NULL;
+		} else if (r == 0) {
+			break;
+		} else {
+			len += r;
+		}
 	}
-	if (line[nread - 1] == '\n')
-		line[nread - 1] = '\0';
-	fclose(output);
+	if (!line)
+		return NULL;
+	line[len - 1] = '\0'; /* replace newline */
 	return line;
 }
 
@@ -73,11 +87,9 @@ static int selector_pipe(int npipe[2], int lines, const char *prompt) {
 	int pre_pipe[2];
 	if (pipe(pre_pipe) == -1)
 		return -1;
-
 	int post_pipe[2];
 	if (pipe(post_pipe) == -1)
 		return -1;
-
 	pid_t exec_pid = fork();
 	if (exec_pid == 0) {
 		close(pre_pipe[1]);
@@ -89,7 +101,8 @@ static int selector_pipe(int npipe[2], int lines, const char *prompt) {
 		char *const args[] = { "alacritty", "-e", "sh", "-c", str, NULL };
 		execvp(args[0], args);
 	} else if (exec_pid == -1) {
-		/* TODO */
+		close(pre_pipe[1]);
+		close(post_pipe[0]);
 	}
 	close(pre_pipe[0]);
 	close(post_pipe[1]);
@@ -99,71 +112,84 @@ static int selector_pipe(int npipe[2], int lines, const char *prompt) {
 	return 0;
 }
 
-static char *pick_path(const char *dirpath, const char *regex_str, int lines, int allow_dirs, const char *program) {
-	char *fullpath = NULL;
-	dirlist *dl = dirlist_get(dirpath, regex_str, allow_dirs);
-	qsort(dl->entries, dl->len, sizeof(*(dl->entries)), direntry_comp);
+static int fts_strcmp_path(const FTSENT **a, const FTSENT **b) {
+	return strcmp((*a)->fts_path, (*b)->fts_path);
+}
+
+static void write_files(int fd, char *dirpath, const char *regex_str, int allow_dirs) {
+	regex_t reg;
+	if (regcomp(&reg, regex_str, REG_EXTENDED | REG_ICASE | REG_NOSUB)) {
+		perror("regcomp");
+		return;
+	}
+	FTS *fts = fts_open((char *[]){dirpath, NULL} , FTS_LOGICAL, fts_strcmp_path);
+	if (!fts) {
+		perror("fts");
+		goto fail_fts;
+	}
+	for (;;) {
+		FTSENT *ent = fts_read(fts);
+		if (!ent) {
+			if (errno == 0) {
+				break;
+			} else {
+				perror("fts_read");
+				goto fail_fts_read;
+			}
+		}
+		if (ent->fts_info == FTS_DP) {
+			continue;
+		}
+		if (!allow_dirs && ent->fts_info == FTS_D) {
+			continue;
+		}
+		if (ent->fts_info == FTS_F &&
+		    regexec(&reg, ent->fts_name, 0, NULL, 0)) {
+			continue;
+		}
+		char *cut = ent->fts_path;
+		for (int i = 0; i < 4; ++i)
+			cut = strchr(cut, '/') + 1;
+		write(fd, cut, strlen(cut));
+		write(fd, "\n", 1);
+	}
+fail_fts_read:
+	fts_close(fts);
+fail_fts:
+	regfree(&reg);
+}
+
+static char *pick_path(char *dirpath, const char *regex_str, int lines, int allow_dirs, const char *program) {
+	char *line = NULL;
 	int pipe[2];
 	char *prompt = alloc_sprintf("%s ", program);
 	if (selector_pipe(pipe, lines, prompt) == -1)
-		goto error_dl;
+		goto fail;
 	pid_t write_pid = fork();
 	if (write_pid == -1)
-		goto error_dl;
+		goto fail;
 	if (write_pid == 0) {
 		close(pipe[0]);
-		for(size_t i = 0; i < dl->len; ++i) {
-			const char *path = dl->entries[i].path;
-			size_t len = strlen(path);
-			/* int count = 0; */
-			/* size_t last = len; */
-			/* for(;last <= len; --last) { */
-			/* 	if (path[last] == '/') */
-			/* 		count++; */
-			/* 	if (count == 2) */
-			/* 		break; */
-			/* } */
-			/* last++; */
-			/* dprintf(pipe[1], "%s\n", path + last); */
-			size_t slash_count = 0;
-			size_t i = 0;
-			/* /home/mat/videos/ = 4 slashes */
-			const size_t cut = 4;
-			for (; i < len && slash_count < cut; ++i) {
-				if (path[i] == '/')
-					slash_count++;
-			}
-			if (slash_count == cut)
-				dprintf(pipe[1], "%s\n", path + i);
-		}
+		write_files(pipe[1], dirpath, regex_str, allow_dirs);
 		exit(0);
 	}
 	close(pipe[1]);
 
-	char *line = read_line_fd(pipe[0]);
+	char *name = read_line_fd(pipe[0]);
 	close(pipe[0]);
-	if (!line)
-		goto error_dl;
-	size_t line_len = strlen(line);
-	size_t match = 0;
-	for (size_t i = 0; i < dl->len; ++i) {
-		size_t len = strlen(dl->entries[i].path);
-		size_t j = 0;
-		for (; j < line_len; ++j) {
-			if(line[j] != dl->entries[i].path[len - line_len + j])
-				break;
-		}
-		if(j == line_len) {
-			match = i;
-			break;
-		}
-	}
-	fullpath = strdup(dl->entries[match].path);
-	free(line);
-error_dl:
+	if (!name)
+		goto fail;
+	size_t dirpath_len = strlen(dirpath);
+	size_t name_len = strlen(name);
+	line = malloc(dirpath_len + name_len + 2);
+	memcpy(line, dirpath, dirpath_len);
+	memcpy(line + dirpath_len, "/", 1);
+	memcpy(line + dirpath_len + 1, name, name_len);
+	memcpy(line + dirpath_len + 1 + name_len, "\0", 1);
+	free(name);
+fail:
 	free(prompt);
-	dirlist_free(dl);
-	return fullpath;
+	return line;
 }
 
 static int pick_yes_no(const char *prompt, int lines) {
@@ -196,7 +222,6 @@ int main(int argc, char *argv[]) {
 		lines = 40;
 	}
 
-	int exit_code = EXIT_SUCCESS;
 	int opt;
 	int remove = 0;
 	int allow_dirs = 0;
