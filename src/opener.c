@@ -1,16 +1,17 @@
-#include <stdio.h>
-#include <unistd.h>
-#include <sys/wait.h>
-#include <stdlib.h>
-#include <sys/ioctl.h>
-#include <stdarg.h>
+#include <errno.h>
+#include <fts.h>
 #include <libgen.h>
 #include <regex.h>
-#include <fts.h>
-#include <errno.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <sys/ioctl.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
-static int get_term_lines() {
+static int get_term_lines()
+{
 	struct winsize size;
 	if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &size) == -1) {
 		perror("ioctl");
@@ -19,11 +20,13 @@ static int get_term_lines() {
 	return size.ws_row;
 }
 
-static void usage() {
+static void usage()
+{
 	fprintf(stderr, "opener [-r] [-d] program regex path\n");
 }
 
-static char *alloc_sprintf(const char *fmt, ...) {
+static char *alloc_sprintf(const char *fmt, ...)
+{
 	int n = 0;
 	size_t size = 0;
 	char *p = NULL;
@@ -36,26 +39,27 @@ static char *alloc_sprintf(const char *fmt, ...) {
 	va_end(ap);
 
 	if (n < 0)
-	    return NULL;
+		return NULL;
 
-	size = (size_t) n + 1;      /* One extra byte for '\0' */
+	size = (size_t)n + 1; /* One extra byte for '\0' */
 	p = malloc(size);
 	if (p == NULL)
-	    return NULL;
+		return NULL;
 
 	va_start(ap, fmt);
 	n = vsnprintf(p, size, fmt, ap);
 	va_end(ap);
 
 	if (n < 0) {
-	    free(p);
-	    return NULL;
+		free(p);
+		return NULL;
 	}
 
 	return p;
 }
 
-static char *read_line_fd(int fd) {
+static char *read_line_fd(int fd)
+{
 	char *line = NULL;
 	size_t cap = 32;
 	size_t len = 0;
@@ -85,7 +89,8 @@ static char *read_line_fd(int fd) {
 	return line;
 }
 
-static int selector_pipe(int npipe[2], int lines, const char *prompt) {
+static int selector_pipe(int npipe[2], int lines, const char *prompt)
+{
 	if (!prompt)
 		prompt = "> ";
 	int pre_pipe[2];
@@ -99,10 +104,14 @@ static int selector_pipe(int npipe[2], int lines, const char *prompt) {
 		close(pre_pipe[1]);
 		close(post_pipe[0]);
 		const char *fmt = "fzy -p '%s' -l %d 0>&%d 1>&%d";
-		char *str = alloc_sprintf(fmt, prompt, lines, pre_pipe[0], post_pipe[1]);
-		/* const char *fmt = "fzf --reverse --prompt='%s' 0>&%d 1>&%d"; */
-		/* char *str = alloc_sprintf(fmt, prompt, pre_pipe[0], post_pipe[1]); */
-		execlp("alacritty", "alacritty", "-e", "sh", "-c", str, (char *)NULL );
+		char *str = alloc_sprintf(fmt, prompt, lines, pre_pipe[0],
+					  post_pipe[1]);
+		/* const char *fmt = "fzf --reverse --prompt='%s' 0>&%d 1>&%d";
+		 */
+		/* char *str = alloc_sprintf(fmt, prompt, pre_pipe[0],
+		 * post_pipe[1]); */
+		execlp("alacritty", "alacritty", "-e", "sh", "-c", str,
+		       (char *)NULL);
 	} else if (exec_pid == -1) {
 		close(pre_pipe[1]);
 		close(post_pipe[0]);
@@ -115,17 +124,21 @@ static int selector_pipe(int npipe[2], int lines, const char *prompt) {
 	return 0;
 }
 
-static int fts_strcmp_path(const FTSENT **a, const FTSENT **b) {
+static int fts_strcmp_path(const FTSENT **a, const FTSENT **b)
+{
 	return strcmp((*a)->fts_path, (*b)->fts_path);
 }
 
-static void write_files(int fd, char *dirpath, const char *regex_str, int allow_dirs) {
+static void write_files(int fd, char *dirpath, const char *regex_str,
+			int allow_dirs)
+{
 	regex_t reg;
 	if (regcomp(&reg, regex_str, REG_EXTENDED | REG_ICASE | REG_NOSUB)) {
 		perror("regcomp");
 		return;
 	}
-	FTS *fts = fts_open((char *[]){dirpath, NULL} , FTS_LOGICAL, fts_strcmp_path);
+	FTS *fts =
+	    fts_open((char *[]){dirpath, NULL}, FTS_LOGICAL, fts_strcmp_path);
 	if (!fts) {
 		perror("fts");
 		goto fail_fts;
@@ -162,7 +175,9 @@ fail_fts:
 	regfree(&reg);
 }
 
-static char *pick_path(char *dirpath, const char *regex_str, int lines, int allow_dirs, const char *program) {
+static char *pick_path(char *dirpath, const char *regex_str, int lines,
+		       int allow_dirs, const char *program)
+{
 	char *line = NULL;
 	int pipe[2];
 	char *prompt = alloc_sprintf("%s ", program);
@@ -195,7 +210,8 @@ fail:
 	return line;
 }
 
-static int pick_yes_no(const char *prompt, int lines) {
+static int pick_yes_no(const char *prompt, int lines)
+{
 	int response = 0;
 	int pipe[2];
 	if (selector_pipe(pipe, lines, prompt) == -1)
@@ -219,7 +235,8 @@ static int pick_yes_no(const char *prompt, int lines) {
 	return response;
 }
 
-int main(int argc, char *argv[]) {
+int main(int argc, char *argv[])
+{
 	int lines = get_term_lines();
 	if (lines == -1) {
 		lines = 40;
@@ -250,7 +267,8 @@ int main(int argc, char *argv[]) {
 	char *program = argv[optind++];
 	char *regex_str = argv[optind++];
 	char *dirpath = argv[optind++];
-	char *fullpath = pick_path(dirpath, regex_str, lines, allow_dirs, program);
+	char *fullpath =
+	    pick_path(dirpath, regex_str, lines, allow_dirs, program);
 	if (!fullpath)
 		return -1; /* TODO */
 
