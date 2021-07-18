@@ -163,8 +163,16 @@ static void write_files(int fd, char *dirpath, const char *regex_str,
 		    regexec(&reg, ent->fts_name, 0, NULL, 0)) {
 			continue;
 		}
+		size_t slash_count = 0;
+		for (size_t i = 0;; ++i) {
+			if (!dirpath[i])
+				break;
+			if (dirpath[i] == '/')
+				slash_count++;
+		}
 		char *cut = ent->fts_path;
-		for (int i = 0; i < 4; ++i)
+		/* + 1 to also skip the middle slash */
+		for (size_t i = 0; i < slash_count + 1; ++i)
 			cut = strchr(cut, '/') + 1;
 		write(fd, cut, strlen(cut));
 		write(fd, "\n", 1);
