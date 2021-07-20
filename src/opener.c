@@ -106,13 +106,21 @@ static int selector_pipe(int npipe[2], int lines, const char *prompt)
 		close(pre_pipe[1]);
 		close(post_pipe[0]);
 		const char *fmt = "fzy -p '%s' -l %d 0>&%d 1>&%d";
-		char *str = alloc_sprintf(fmt, prompt, lines, pre_pipe[0],
+		char *str = alloc_sprintf(fmt,
+					  prompt,
+					  lines,
+					  pre_pipe[0],
 					  post_pipe[1]);
 		/* const char *fmt = "fzf --reverse --prompt='%s' 0>&%d 1>&%d";
 		 */
-		/* char *str = alloc_sprintf(fmt, prompt, pre_pipe[0],
-		 * post_pipe[1]); */
-		execlp("alacritty", "alacritty", "-e", "sh", "-c", str,
+		/* char *str = */
+		/*     alloc_sprintf(fmt, prompt, pre_pipe[0], post_pipe[1]); */
+		execlp("alacritty",
+		       "alacritty",
+		       "-e",
+		       "sh",
+		       "-c",
+		       str,
 		       (char *)NULL);
 	} else if (exec_pid == -1) {
 		close(pre_pipe[1]);
@@ -131,8 +139,8 @@ static int fts_strcmp_path(const FTSENT **a, const FTSENT **b)
 	return strcmp((*a)->fts_path, (*b)->fts_path);
 }
 
-static void write_files(int fd, char *dirpath, const char *regex_str,
-			int allow_dirs)
+static void
+write_files(int fd, char *dirpath, const char *regex_str, int allow_dirs)
 {
 	regex_t reg;
 	if (regcomp(&reg, regex_str, REG_EXTENDED | REG_ICASE | REG_NOSUB)) {
@@ -185,8 +193,11 @@ fail_fts:
 	regfree(&reg);
 }
 
-static char *pick_path(char *dirpath, const char *regex_str, int lines,
-		       int allow_dirs, const char *program)
+static char *pick_path(char *dirpath,
+		       const char *regex_str,
+		       int lines,
+		       int allow_dirs,
+		       const char *program)
 {
 	char *line = NULL;
 	int pipe[2];
