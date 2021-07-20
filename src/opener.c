@@ -60,16 +60,20 @@ static char *alloc_sprintf(const char *fmt, ...)
 
 static char *read_line_fd(int fd)
 {
-	char *line = NULL;
-	size_t cap = 32;
+	size_t cap = 0;
 	size_t len = 0;
-	while ((line = realloc(line, cap))) {
-		size_t left = cap - len;
-		if (!left) {
-			cap *= 2;
-			continue;
+	char *line = NULL;
+	for (;;) {
+		if (cap == len) {
+			cap = cap ? 2 * cap : 32;
+			char *str = realloc(line, cap);
+			if (!str) {
+				free(line);
+				return NULL;
+			}
+			line = str;
 		}
-		ssize_t r = read(fd, line + len, left);
+		ssize_t r = read(fd, line + len, cap - len);
 		if (r < 0) {
 			free(line);
 			return NULL;
@@ -79,8 +83,6 @@ static char *read_line_fd(int fd)
 			len += (size_t)r;
 		}
 	}
-	if (!line)
-		return NULL;
 	if (!len) {
 		free(line);
 		return NULL;
