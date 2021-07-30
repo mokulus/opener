@@ -115,13 +115,7 @@ static pid_t selector_pipe(int npipe[2], int lines, const char *prompt)
 		 */
 		/* char *str = */
 		/*     alloc_sprintf(fmt, prompt, pre_pipe[0], post_pipe[1]); */
-		execlp("st",
-		       "st",
-		       "-e",
-		       "sh",
-		       "-c",
-		       str,
-		       (char *)NULL);
+		execlp("st", "st", "-e", "sh", "-c", str, (char *)NULL);
 	} else if (exec_pid == -1) {
 		close(pre_pipe[1]);
 		close(post_pipe[0]);
