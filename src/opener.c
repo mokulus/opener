@@ -115,8 +115,8 @@ static int selector_pipe(int npipe[2], int lines, const char *prompt)
 		 */
 		/* char *str = */
 		/*     alloc_sprintf(fmt, prompt, pre_pipe[0], post_pipe[1]); */
-		execlp("alacritty",
-		       "alacritty",
+		execlp("st",
+		       "st",
 		       "-e",
 		       "sh",
 		       "-c",
