@@ -91,7 +91,7 @@ static char *read_line_fd(int fd)
 	return line;
 }
 
-static int selector_pipe(int npipe[2], int lines, const char *prompt)
+static pid_t selector_pipe(int npipe[2], int lines, const char *prompt)
 {
 	if (!prompt)
 		prompt = "> ";
@@ -131,7 +131,7 @@ static int selector_pipe(int npipe[2], int lines, const char *prompt)
 
 	npipe[0] = post_pipe[0];
 	npipe[1] = pre_pipe[1];
-	return 0;
+	return exec_pid;
 }
 
 static int fts_strcmp_path(const FTSENT **a, const FTSENT **b)
@@ -202,20 +202,14 @@ static char *pick_path(char *dirpath,
 	char *line = NULL;
 	int pipe[2];
 	char *prompt = alloc_sprintf("%s ", program);
-	if (selector_pipe(pipe, lines, prompt) == -1)
+	pid_t id;
+	if ((id = selector_pipe(pipe, lines, prompt)) == -1)
 		goto fail;
-	pid_t write_pid = fork();
-	if (write_pid == -1)
-		goto fail;
-	if (write_pid == 0) {
-		close(pipe[0]);
-		write_files(pipe[1], dirpath, regex_str, allow_dirs);
-		exit(0);
-	}
+	write_files(pipe[1], dirpath, regex_str, allow_dirs);
 	close(pipe[1]);
-
 	char *name = read_line_fd(pipe[0]);
 	close(pipe[0]);
+	waitpid(id, NULL, 0);
 	if (!name)
 		goto fail;
 	size_t dirpath_len = strlen(dirpath);
@@ -235,19 +229,14 @@ static int pick_yes_no(const char *prompt, int lines)
 {
 	int response = 0;
 	int pipe[2];
-	if (selector_pipe(pipe, lines, prompt) == -1)
+	pid_t id;
+	if ((id = selector_pipe(pipe, lines, prompt)) == -1)
 		return response;
-	pid_t write_pid = fork();
-	if (write_pid == -1)
-		return response;
-	if (write_pid == 0) {
-		close(pipe[0]);
-		dprintf(pipe[1], "No\nYes\n");
-		exit(0);
-	}
+	dprintf(pipe[1], "No\nYes\n");
 	close(pipe[1]);
 	char *response_line = read_line_fd(pipe[0]);
 	close(pipe[0]);
+	waitpid(id, NULL, 0);
 	if (!response_line)
 		return response;
 	if (!strcmp(response_line, "Yes"))
