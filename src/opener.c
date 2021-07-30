@@ -105,16 +105,20 @@ static pid_t selector_pipe(int npipe[2], int lines, const char *prompt)
 	if (exec_pid == 0) {
 		close(pre_pipe[1]);
 		close(post_pipe[0]);
+
 		const char *fmt = "fzy -p '%s' -l %d 0>&%d 1>&%d";
 		char *str = alloc_sprintf(fmt,
 					  prompt,
 					  lines,
 					  pre_pipe[0],
 					  post_pipe[1]);
+
+		/* (void)lines; */
 		/* const char *fmt = "fzf --reverse --prompt='%s' 0>&%d 1>&%d";
 		 */
 		/* char *str = */
 		/*     alloc_sprintf(fmt, prompt, pre_pipe[0], post_pipe[1]); */
+
 		execlp("st", "st", "-e", "sh", "-c", str, (char *)NULL);
 	} else if (exec_pid == -1) {
 		close(pre_pipe[1]);
