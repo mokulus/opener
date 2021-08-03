@@ -240,6 +240,7 @@ static int pick_yes_no(const char *prompt, int lines)
 
 int main(int argc, char *argv[])
 {
+	int exit_code = 0;
 	int lines = get_term_lines();
 	if (lines == -1) {
 		lines = 40;
@@ -269,30 +270,37 @@ int main(int argc, char *argv[])
 	if (!(use_dirs || use_files)) {
 		fputs("Need at least one of -f, -d\n", stderr);
 		usage();
-		return 1;
+		exit_code = 1;
+		goto fail;
 	}
 
 	if (optind + 2 >= argc) {
 		usage();
-		return 1;
+		exit_code = 1;
+		goto fail;
 	}
 
 	char *program = argv[optind++];
 	char *regex_str = argv[optind++];
 	/* ensure no trailing slash, we assume this later */
 	char *dirpath = realpath(argv[optind++], NULL);
-	if (!dirpath)
-		return 1;
+	if (!dirpath) {
+		exit_code = 1;
+		goto fail;
+	}
 	char *fullpath =
 	    pick_path(dirpath, regex_str, lines, use_dirs, use_files, program);
-	if (!fullpath)
-		return 1;
+	if (!fullpath) {
+		exit_code = 1;
+		goto fail_pick_path;
+	}
 
 	pid_t program_pid = fork();
 	if (program_pid == 0) {
 		execlp(program, program, fullpath, (char *)NULL);
 	} else if (program_pid == -1) {
-		goto fail;
+		exit_code = 1;
+		goto fail_fork;
 	}
 
 	waitpid(program_pid, NULL, 0);
@@ -310,6 +318,11 @@ int main(int argc, char *argv[])
 			free(dir_orig);
 		}
 	}
-fail:
+
+fail_fork:
 	free(fullpath);
+fail_pick_path:
+	free(dirpath);
+fail:
+	return exit_code;
 }
