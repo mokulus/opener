@@ -140,6 +140,9 @@ static int fts_strcmp_path(const FTSENT **a, const FTSENT **b)
 static void write_files(
     int fd, char *dirpath, const char *regex_str, int use_dirs, int use_files)
 {
+	FILE *file = fdopen(fd, "w");
+	if (!file)
+		perror("fdopen");
 	regex_t reg;
 	if (regcomp(&reg, regex_str, REG_EXTENDED | REG_ICASE | REG_NOSUB)) {
 		perror("regcomp");
@@ -175,10 +178,7 @@ static void write_files(
 			continue;
 		}
 		size_t common_len = strlen(dirpath) + 1;
-		write(fd,
-		      ent->fts_path + common_len,
-		      ent->fts_pathlen - common_len);
-		write(fd, "\n", 1);
+        fprintf(file, "%s\n", ent->fts_path + common_len);
 	}
 fail_fts_read:
 	fts_close(fts);
