@@ -58,40 +58,20 @@ static char *alloc_sprintf(const char *fmt, ...)
     return p;
 }
 
-static char *read_line_fd(int fd)
-{
-    size_t cap = 0;
-    size_t len = 0;
+static char *read_line(FILE *file) {
     char *line = NULL;
-    for (;;) {
-        if (cap == len) {
-            cap = cap ? 2 * cap : 32;
-            char *str = realloc(line, cap);
-            if (!str) {
-                free(line);
-                return NULL;
-            }
-            line = str;
-        }
-        ssize_t r = read(fd, line + len, cap - len);
-        if (r < 0) {
-            free(line);
-            return NULL;
-        } else if (r == 0) {
-            break;
-        } else {
-            len += (size_t)r;
-        }
-    }
-    if (!len) {
-        free(line);
+    size_t n = 0;
+    ssize_t len = getline(&line, &n, file);
+    if (len == -1) {
+        perror("getline");
         return NULL;
     }
-    line[len - 1] = '\0'; /* replace newline */
+    if (line[len - 1] == '\n')
+        line[len - 1] = '\0';
     return line;
 }
 
-static pid_t selector_pipe(int npipe[2], int lines, const char *prompt)
+static pid_t selector_pipe(FILE **out, FILE **in, int lines, const char *prompt)
 {
     if (!prompt)
         prompt = "> ";
@@ -126,8 +106,8 @@ static pid_t selector_pipe(int npipe[2], int lines, const char *prompt)
     close(pre_pipe[0]);
     close(post_pipe[1]);
 
-    npipe[0] = post_pipe[0];
-    npipe[1] = pre_pipe[1];
+    *out = fdopen(post_pipe[0], "r");
+    *in = fdopen(pre_pipe[1], "w");
     return exec_pid;
 }
 
@@ -137,13 +117,8 @@ static int fts_strcmp_path(const FTSENT **a, const FTSENT **b)
 }
 
 static void write_files(
-    int fd, char *dirpath, const char *regex_str, int use_dirs, int use_files)
+    FILE *in, char *dirpath, const char *regex_str, int use_dirs, int use_files)
 {
-    FILE *file = fdopen(fd, "w");
-    if (!file) {
-        perror("fdopen");
-        return;
-    }
     regex_t reg;
     if (regcomp(&reg, regex_str, REG_EXTENDED | REG_ICASE | REG_NOSUB)) {
         perror("regcomp");
@@ -179,13 +154,12 @@ static void write_files(
             continue;
         }
         size_t common_len = strlen(dirpath) + 1;
-        fprintf(file, "%s\n", ent->fts_path + common_len);
+        fprintf(in, "%s\n", ent->fts_path + common_len);
     }
 fail_fts_read:
     fts_close(fts);
 fail_fts:
     regfree(&reg);
-    fflush(file);
 }
 
 static char *pick_path(char *dirpath,
@@ -196,25 +170,28 @@ static char *pick_path(char *dirpath,
                        const char *program)
 {
     char *line = NULL;
-    int pipe[2];
     char *prompt = alloc_sprintf("%s ", program);
     pid_t id;
-    if ((id = selector_pipe(pipe, lines, prompt)) == -1)
+    FILE *out, *in;
+    if ((id = selector_pipe(&out, &in, lines, prompt)) == -1)
         goto fail;
-    write_files(pipe[1], dirpath, regex_str, use_dirs, use_files);
-    close(pipe[1]);
-    char *name = read_line_fd(pipe[0]);
-    close(pipe[0]);
+    write_files(in, dirpath, regex_str, use_dirs, use_files);
+    fclose(in);
+    char *name = read_line(out);
+    fclose(out);
     waitpid(id, NULL, 0);
     if (!name)
         goto fail;
     size_t dirpath_len = strlen(dirpath);
     size_t name_len = strlen(name);
     line = malloc(dirpath_len + name_len + 2);
+    if (!line)
+        goto fail_line;
     memcpy(line, dirpath, dirpath_len);
     line[dirpath_len] = '/';
     memcpy(line + dirpath_len + 1, name, name_len);
     line[dirpath_len + 1 + name_len] = '\0';
+fail_line:
     free(name);
 fail:
     free(prompt);
@@ -224,14 +201,14 @@ fail:
 static int pick_yes_no(const char *prompt, int lines)
 {
     int response = 0;
-    int pipe[2];
     pid_t id;
-    if ((id = selector_pipe(pipe, lines, prompt)) == -1)
+    FILE *out, *in;
+    if ((id = selector_pipe(&out, &in, lines, prompt)) == -1)
         return response;
-    dprintf(pipe[1], "No\nYes\n");
-    close(pipe[1]);
-    char *response_line = read_line_fd(pipe[0]);
-    close(pipe[0]);
+    fprintf(in, "No\nYes\n");
+    fclose(in);
+    char *response_line = read_line(out);
+    fclose(out);
     waitpid(id, NULL, 0);
     if (!response_line)
         return response;
