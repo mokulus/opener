@@ -114,7 +114,8 @@ static pid_t selector_pipe(int npipe[2], int lines, const char *prompt)
 		/* 			  post_pipe[1]); */
 
 		(void)lines;
-		const char *fmt = "fzf --reverse --prompt='%s' 0>&%d 1>&%d";
+		/* const char *fmt = "fzf -e --reverse --prompt='%s' 0>&%d 1>&%d"; */
+		const char *fmt = "sfs -p '%s' 0>&%d 1>&%d";
 		char *str =
 		    alloc_sprintf(fmt, prompt, pre_pipe[0], post_pipe[1]);
 
