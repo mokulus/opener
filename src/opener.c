@@ -140,8 +140,10 @@ static void write_files(
     int fd, char *dirpath, const char *regex_str, int use_dirs, int use_files)
 {
     FILE *file = fdopen(fd, "w");
-    if (!file)
+    if (!file) {
         perror("fdopen");
+        return;
+    }
     regex_t reg;
     if (regcomp(&reg, regex_str, REG_EXTENDED | REG_ICASE | REG_NOSUB)) {
         perror("regcomp");
@@ -183,6 +185,7 @@ fail_fts_read:
     fts_close(fts);
 fail_fts:
     regfree(&reg);
+    fflush(file);
 }
 
 static char *pick_path(char *dirpath,
