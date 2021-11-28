@@ -111,9 +111,9 @@ static pid_t selector_pipe(FILE **out, FILE **in, int lines, const char *prompt)
     return exec_pid;
 }
 
-static int fts_strcmp_path(const FTSENT **a, const FTSENT **b)
+static int ftsent_cmp(const FTSENT **a, const FTSENT **b)
 {
-    return strcmp((*a)->fts_path, (*b)->fts_path);
+    return strcasecmp((*a)->fts_name, (*b)->fts_name);
 }
 
 static void write_files(
@@ -125,7 +125,7 @@ static void write_files(
         return;
     }
     FTS *fts =
-        fts_open((char *[]){dirpath, NULL}, FTS_LOGICAL, fts_strcmp_path);
+        fts_open((char *[]){dirpath, NULL}, FTS_LOGICAL, ftsent_cmp);
     if (!fts) {
         perror("fts");
         goto fail_fts;
